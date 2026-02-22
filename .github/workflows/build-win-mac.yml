@@ -9,12 +9,21 @@ on:
       ci_version:
         required: true
         type: string
+      branch:
+        required: false
+        type: string
+        default: 'c_version'
   workflow_dispatch:
     inputs:
       ci_version:
         description: 'CI Version to use'
         required: true
         default: 'v1.0.0'
+        type: string
+      branch:
+        description: 'Branch to checkout'
+        required: false
+        default: 'c_version'
         type: string
 
 
@@ -43,6 +52,7 @@ jobs:
           repository: 'esports/esports_moonlight_qt6'
           github-server-url: 'https://gitea.vimaxai.com:11129'
           token: ${{ secrets.GITEA_TOKEN }}
+          ref: ${{ inputs.branch }}
           submodules: 'recursive'
           fetch-depth: 1
 
