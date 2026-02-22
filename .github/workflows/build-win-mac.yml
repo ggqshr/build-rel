@@ -1,0 +1,175 @@
+---
+name: Build - Windows and macOS
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      ci_version:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ci_version:
+        description: 'CI Version to use'
+        required: true
+        default: 'v1.0.0'
+        type: string
+
+
+jobs:
+  build:
+    env:
+      CI_VERSION: ${{ inputs.ci_version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows
+          - os: windows-2025
+            qt_version: 6.7.3
+            qt_version_arm64: 6.7.3
+          # macOS
+          - os: macos-15
+            qt_version: 6.7.3
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'esports/esports_moonlight_qt6'
+          github-server-url: 'https://gitea.vimaxai.com:11129'
+          token: ${{ secrets.GITEA_TOKEN }}
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Install create-dmg (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install node
+          npm install --global create-dmg
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          set-env: ${{ runner.os != 'Windows' }}
+          add-tools-to-path: ${{ runner.os != 'Windows' }}
+          version: ${{ matrix.qt_version }}
+          modules: 'qtwebsockets qtmultimedia qt5compat qtshadertools'
+
+            #      - name: Install Qt ARM64 (Windows)
+            #        if: runner.os == 'Windows'
+            #        uses: jurplel/install-qt-action@v4
+            #        with:
+            #          cache: true
+            #          set-env: false
+            #          add-tools-to-path: false
+            #          arch: win64_msvc2022_arm64_cross_compiled
+            #          version: ${{ matrix.qt_version_arm64 }}
+
+      - name: Cache NSIS (Windows)
+        if: runner.os == 'Windows'
+        id: cache-nsis
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files (x86)\NSIS
+          key: nsis-3.10-windows
+
+      - name: Install NSIS (Windows)
+        if: runner.os == 'Windows' && steps.cache-nsis.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: choco install nsis -y
+
+      - name: Set NSIS env (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: echo "NSIS=C:\Program Files (x86)\NSIS" >> $env:GITHUB_ENV
+
+      - name: Build x64 binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set "PATH=%QT6_DIR%;%PATH%"
+          scripts\build-arch.bat Release x64
+        env:
+          QT6_DIR: ${{ runner.workspace }}\Qt\${{ matrix.qt_version }}\msvc2019_64\bin
+
+            #      - name: Build ARM64 binaries (Windows)
+            #        if: runner.os == 'Windows'
+            #        shell: cmd
+            #        run: |
+            #          set "PATH=%QT_PATH%;%PATH%"
+            #          scripts\build-arch.bat Release arm64
+            #        env:
+            #          QT_PATH: ${{ runner.workspace }}\Qt\${{ matrix.qt_version_arm64 }}\msvc2022_arm64\bin
+
+      - name: Build Package
+        shell: pwsh
+        run: |
+          if ($Env:RUNNER_OS -eq "Windows") {
+            #cmd /c scripts\generate-bundle.bat Release
+            cmd /c echo 11
+          } else {
+            bash scripts/generate-dmg.sh Release
+          }
+
+      - name: Sign and build NSIS installer (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          set VERSION_FILE=version.txt
+          set /p VERSION=<%VERSION_FILE%
+          set ARCH=x64
+          set CHANNEL=Official
+
+          rem Rename update.zip to signed version (signing would happen here with signtool)
+          copy build\installer-x64-release\ESports-%ARCH%-%CHANNEL%-%VERSION%-update.zip build\installer-x64-release\signed_ESports-%ARCH%-%CHANNEL%-%VERSION%-update.zip
+
+          rem Build signed NSIS installer
+          scripts\build-nsi.bat Release x64 %VERSION% %CHANNEL%
+
+      - name: Upload Binaries (Windows x64)
+        uses: actions/upload-artifact@v5
+        if: runner.os == 'Windows'
+        with:
+          name: Moonlight-${{ runner.os }}-x64-${{ env.CI_VERSION }}
+          path: build/deploy-x64-release/*
+          if-no-files-found: error
+
+      - name: Upload NSIS Installer (Windows x64)
+        uses: actions/upload-artifact@v5
+        if: runner.os == 'Windows'
+        with:
+          name: ESportsSetup-${{ runner.os }}-x64-${{ env.CI_VERSION }}
+          path: build/installer-x64-release/ESportsSetup_*.exe
+          if-no-files-found: error
+
+            #      - name: Upload Binaries (Windows arm64)
+            #        uses: actions/upload-artifact@v5
+            #        if: runner.os == 'Windows'
+            #        with:
+            #          name: Moonlight-${{ runner.os }}-arm64-${{ env.CI_VERSION }}
+            #          path: build/deploy-arm64-release/*
+            #          if-no-files-found: error
+
+      - name: Upload Binaries (macOS)
+        uses: actions/upload-artifact@v5
+        if: runner.os == 'macOS'
+        with:
+          name: Moonlight-${{ runner.os }}-${{ env.CI_VERSION }}
+          path: build/installer-Release/*.dmg
+          compression-level: 0
+          if-no-files-found: error
+
+      - name: Upload Symbols
+        uses: actions/upload-artifact@v5
+        with:
+          name: zDevDbgSyms-${{ runner.os }}-${{ env.CI_VERSION }}
+          path: |
+            build/installer-*/*.dsym/*
+            build/symbols-*/*.pdb
+          if-no-files-found: error

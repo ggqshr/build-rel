@@ -1,0 +1,15 @@
+name: External Trigger Workflow
+
+on:
+  repository_dispatch:
+    # 这里的 types 是自定义的名字，只有请求中的 event_type 匹配时才会触发
+    types: [build]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Echo custom data
+        run: |
+          echo "触发类型: ${{ github.event.action }}"
+          echo "传递的参数: ${{ toJson(github.event.client_payload) }}"
