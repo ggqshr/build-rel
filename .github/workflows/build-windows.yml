@@ -1,0 +1,100 @@
+name: Build - Windows
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      author:
+        required: true
+        type: string
+      image_url:
+        required: false
+        type: string
+        default: ''
+      version_str:
+        required: true
+        type: string
+
+jobs:
+  build-windows:
+    runs-on: windows-2025
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'esports/esports_moonlight_qt6'
+          github-server-url: 'https://gitea.vimaxai.com:11129'
+          token: ${{ secrets.GITEA_TOKEN }}
+          ref: ${{ inputs.branch }}
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Inject branding files
+        shell: bash
+        run: |
+          echo "${{ inputs.name }}" > app_name.txt
+          echo "${{ inputs.author }}" > company_name.txt
+          echo "${{ inputs.version_str }}" > version.txt
+
+      - name: Download custom icon
+        if: inputs.image_url != ''
+        shell: bash
+        run: curl -L "${{ inputs.image_url }}" -o app/moonlight.ico
+
+      - name: Install Qt 6.7.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          version: 6.7.3
+          modules: 'qtwebsockets qtmultimedia qt5compat qtshadertools'
+
+      - name: Cache NSIS
+        id: cache-nsis
+        uses: actions/cache@v4
+        with:
+          path: C:\Program Files (x86)\NSIS
+          key: nsis-3.10-windows
+
+      - name: Install NSIS
+        if: steps.cache-nsis.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: choco install nsis -y
+
+      - name: Set NSIS env
+        shell: pwsh
+        run: echo "NSIS=C:\Program Files (x86)\NSIS" >> $env:GITHUB_ENV
+
+      - name: Build x64 binaries
+        shell: cmd
+        run: |
+          set "PATH=%QT6_DIR%;%PATH%"
+          scripts\build-arch.bat Release x64
+        env:
+          QT6_DIR: ${{ runner.workspace }}\Qt\6.7.3\msvc2019_64\bin
+
+      - name: Sign and build NSIS installer
+        shell: cmd
+        run: |
+          set /p VERSION=<version.txt
+          set ARCH=x64
+          set CHANNEL=Official
+
+          rem Copy update.zip as signed version (signing would happen here)
+          copy build\installer-x64-release\ESports-%ARCH%-%CHANNEL%-%VERSION%-update.zip build\installer-x64-release\signed_ESports-%ARCH%-%CHANNEL%-%VERSION%-update.zip
+
+          rem Build signed NSIS installer
+          scripts\build-nsi.bat Release x64 %VERSION% %CHANNEL%
+
+      - name: Upload NSIS Installer
+        uses: actions/upload-artifact@v5
+        with:
+          name: ESportsSetup-Windows-x64
+          path: build/installer-x64-release/ESportsSetup_*.exe
+          if-no-files-found: error

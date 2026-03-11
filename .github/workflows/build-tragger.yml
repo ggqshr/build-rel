@@ -1,15 +1,124 @@
-name: External Trigger Workflow
+name: Build Dispatcher
 
 on:
   repository_dispatch:
-    # 这里的 types 是自定义的名字，只有请求中的 event_type 匹配时才会触发
     types: [build]
 
 jobs:
-  build:
+  # Job 1: Parse parameters from client_payload
+  parse:
+    runs-on: ubuntu-latest
+    outputs:
+      platform: ${{ github.event.client_payload.platform }}
+      branch: ${{ github.event.client_payload.branch }}
+      name: ${{ github.event.client_payload.name }}
+      author: ${{ github.event.client_payload.author }}
+      image_url: ${{ github.event.client_payload.image_url }}
+      version_str: ${{ github.event.client_payload.version_str }}
+      version_code: ${{ github.event.client_payload.version_code }}
+      oss_url: ${{ github.event.client_payload.oss_url }}
+      success_callback: ${{ github.event.client_payload.success_callback }}
+      fail_callback: ${{ github.event.client_payload.fail_callback }}
+    steps:
+      - name: Print dispatch payload
+        run: |
+          echo "Platform: ${{ github.event.client_payload.platform }}"
+          echo "Branch: ${{ github.event.client_payload.branch }}"
+          echo "Name: ${{ github.event.client_payload.name }}"
+          echo "Version: ${{ github.event.client_payload.version_str }}"
+
+  # Job 2a: Windows build (conditional)
+  build-windows:
+    needs: parse
+    if: needs.parse.outputs.platform == 'windows'
+    uses: ./.github/workflows/build-windows.yml
+    with:
+      branch: ${{ needs.parse.outputs.branch }}
+      name: ${{ needs.parse.outputs.name }}
+      author: ${{ needs.parse.outputs.author }}
+      image_url: ${{ needs.parse.outputs.image_url }}
+      version_str: ${{ needs.parse.outputs.version_str }}
+    secrets: inherit
+
+  # Job 2b: macOS build (conditional)
+  build-macos:
+    needs: parse
+    if: needs.parse.outputs.platform == 'macos'
+    uses: ./.github/workflows/build-macos.yml
+    with:
+      branch: ${{ needs.parse.outputs.branch }}
+      name: ${{ needs.parse.outputs.name }}
+      author: ${{ needs.parse.outputs.author }}
+      image_url: ${{ needs.parse.outputs.image_url }}
+      version_str: ${{ needs.parse.outputs.version_str }}
+    secrets: inherit
+
+  # Job 3: Upload to OSS and send success callback
+  upload-and-callback:
+    needs: [parse, build-windows, build-macos]
+    if: |
+      always() &&
+      (needs.build-windows.result == 'success' || needs.build-macos.result == 'success')
     runs-on: ubuntu-latest
     steps:
-      - name: Echo custom data
+      - name: Download build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: artifacts/
+
+      - name: Install ossutil
+        uses: aliyun/setup-ossutil@v1
+        with:
+          ossutil-version: 'latest'
+          access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
+
+      - name: Upload to OSS
         run: |
-          echo "触发类型: ${{ github.event.action }}"
-          echo "传递的参数: ${{ toJson(github.event.client_payload) }}"
+          OSS_URL="${{ needs.parse.outputs.oss_url }}"
+          echo "Uploading artifacts to: $OSS_URL"
+          ossutil cp -r artifacts/ "$OSS_URL" --force
+
+      - name: Send success callback
+        run: |
+          # Find the actual uploaded filename
+          ARTIFACT_FILE=$(find artifacts/ -type f \( -name "*.exe" -o -name "*.dmg" \) | head -1)
+          FILENAME=$(basename "$ARTIFACT_FILE" 2>/dev/null || echo "unknown")
+
+          OSS_URL="${{ needs.parse.outputs.oss_url }}"
+          # Ensure trailing slash
+          OSS_URL="${OSS_URL%/}/"
+
+          curl -sS -X POST "${{ needs.parse.outputs.success_callback }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"status\": \"success\",
+              \"platform\": \"${{ needs.parse.outputs.platform }}\",
+              \"version_str\": \"${{ needs.parse.outputs.version_str }}\",
+              \"version_code\": \"${{ needs.parse.outputs.version_code }}\",
+              \"oss_url\": \"${OSS_URL}${FILENAME}\"
+            }"
+
+  # Job 4: Failure callback
+  failure-callback:
+    needs: [parse, build-windows, build-macos]
+    if: |
+      always() &&
+      (
+        (needs.parse.outputs.platform == 'windows' && (needs.build-windows.result == 'failure' || needs.build-windows.result == 'cancelled')) ||
+        (needs.parse.outputs.platform == 'macos' && (needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled'))
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send failure callback
+        run: |
+          curl -sS -X POST "${{ needs.parse.outputs.fail_callback }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"status\": \"failure\",
+              \"platform\": \"${{ needs.parse.outputs.platform }}\",
+              \"version_str\": \"${{ needs.parse.outputs.version_str }}\",
+              \"version_code\": \"${{ needs.parse.outputs.version_code }}\",
+              \"error\": \"Build failed for ${{ needs.parse.outputs.platform }}\"
+            }"

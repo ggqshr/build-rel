@@ -1,0 +1,70 @@
+name: Build - macOS
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      author:
+        required: true
+        type: string
+      image_url:
+        required: false
+        type: string
+        default: ''
+      version_str:
+        required: true
+        type: string
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        with:
+          repository: 'esports/esports_moonlight_qt6'
+          github-server-url: 'https://gitea.vimaxai.com:11129'
+          token: ${{ secrets.GITEA_TOKEN }}
+          ref: ${{ inputs.branch }}
+          submodules: 'recursive'
+          fetch-depth: 1
+
+      - name: Inject branding files
+        run: |
+          echo "${{ inputs.name }}" > app_name.txt
+          echo "${{ inputs.author }}" > company_name.txt
+          echo "${{ inputs.version_str }}" > version.txt
+
+      - name: Download custom icon
+        if: inputs.image_url != ''
+        run: curl -L "${{ inputs.image_url }}" -o app/moonlight.icns
+
+      - name: Install create-dmg
+        run: |
+          brew install node
+          npm install --global create-dmg
+
+      - name: Install Qt 6.7.3
+        uses: jurplel/install-qt-action@v4
+        with:
+          cache: true
+          version: 6.7.3
+          modules: 'qtwebsockets qtmultimedia qt5compat qtshadertools'
+
+      - name: Build DMG
+        run: bash scripts/generate-dmg.sh Release
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v5
+        with:
+          name: ESports-macOS
+          path: build/installer-Release/*.dmg
+          compression-level: 0
+          if-no-files-found: error
