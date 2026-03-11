@@ -38,9 +38,9 @@ jobs:
 
       - name: Inject branding files
         run: |
-          echo "${{ inputs.name }}" > app_name.txt
-          echo "${{ inputs.author }}" > company_name.txt
-          echo "${{ inputs.version_str }}" > version.txt
+          echo ${{ inputs.name }} > app_name.txt
+          echo ${{ inputs.author }} > company_name.txt
+          echo ${{ inputs.version_str }} > version.txt
 
       - name: Download custom icon
         if: inputs.image_url != ''
