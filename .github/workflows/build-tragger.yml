@@ -67,11 +67,12 @@ jobs:
           path: artifacts/
 
       - name: Install ossutil
-        uses: manyuanrong/setup-ossutil@v2.0
+        uses: yizhoumo/setup-ossutil@v2
         with:
+          ossutil-version: '1.7.18'
+          endpoint: ${{ secrets.OSS_ENDPOINT }}
           access-key-id: ${{ secrets.OSS_ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
-          endpoint: ${{ secrets.OSS_ENDPOINT }}
 
       - name: Upload to OSS
         run: |
