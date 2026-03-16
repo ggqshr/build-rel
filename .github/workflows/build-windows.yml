@@ -86,17 +86,11 @@ jobs:
         run: |
           Invoke-WebRequest -Uri $env:SIGN_TOOL_URL -OutFile "$env:RUNNER_TEMP\sign_tool.exe"
 
-      - name: Sign binaries in deploy directory
+      - name: Sign esports.exe
         shell: cmd
         run: |
-          for %%f in (build\deploy-x64-release\*.exe) do (
-            "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
-            if errorlevel 1 exit /b 1
-          )
-          for %%f in (build\deploy-x64-release\*.dll) do (
-            "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
-            if errorlevel 1 exit /b 1
-          )
+          "%RUNNER_TEMP%\sign_tool.exe" "build\deploy-x64-release\esports.exe" -key %CERT_KEY% -cert %CERT_ID%
+          if errorlevel 1 exit /b 1
         env:
           CERT_KEY: ${{ secrets.CERT_KEY }}
           CERT_ID: ${{ secrets.CERT_ID }}
@@ -119,7 +113,7 @@ jobs:
       - name: Sign NSIS installer
         shell: cmd
         run: |
-          for %%f in (build\installer-x64-release\ESportsSetup_*.exe) do (
+          for %%f in (build\installer-x64-release\ESportsSetup_*_signed_*.exe) do (
             "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
             if errorlevel 1 exit /b 1
           )
@@ -131,7 +125,7 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: ESportsSetup-Windows-x64
-          path: build/installer-x64-release/ESportsSetup_*.exe
+          path: build/installer-x64-release/ESportsSetup_*_signed_*.exe
           if-no-files-found: error
 
       - name: Clean up signing tool

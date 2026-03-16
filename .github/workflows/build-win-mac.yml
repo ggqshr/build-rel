@@ -135,18 +135,12 @@ jobs:
         run: |
           Invoke-WebRequest -Uri $env:SIGN_TOOL_URL -OutFile "$env:RUNNER_TEMP\sign_tool.exe"
 
-      - name: Sign binaries in deploy directory (Windows)
+      - name: Sign esports.exe (Windows)
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for %%f in (build\deploy-x64-release\*.exe) do (
-            "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
-            if errorlevel 1 exit /b 1
-          )
-          for %%f in (build\deploy-x64-release\*.dll) do (
-            "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
-            if errorlevel 1 exit /b 1
-          )
+          "%RUNNER_TEMP%\sign_tool.exe" "build\deploy-x64-release\esports.exe" -key %CERT_KEY% -cert %CERT_ID%
+          if errorlevel 1 exit /b 1
         env:
           CERT_KEY: ${{ secrets.CERT_KEY }}
           CERT_ID: ${{ secrets.CERT_ID }}
@@ -172,7 +166,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: cmd
         run: |
-          for %%f in (build\installer-x64-release\ESportsSetup_*.exe) do (
+          for %%f in (build\installer-x64-release\ESportsSetup_*_signed_*.exe) do (
             "%RUNNER_TEMP%\sign_tool.exe" "%%f" -key %CERT_KEY% -cert %CERT_ID%
             if errorlevel 1 exit /b 1
           )
@@ -193,7 +187,7 @@ jobs:
         if: runner.os == 'Windows'
         with:
           name: ESportsSetup-${{ runner.os }}-x64-${{ env.CI_VERSION }}
-          path: build/installer-x64-release/ESportsSetup_*.exe
+          path: build/installer-x64-release/ESportsSetup_*_signed_*.exe
           if-no-files-found: error
 
             #      - name: Upload Binaries (Windows arm64)
