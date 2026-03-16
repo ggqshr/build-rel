@@ -1,4 +1,5 @@
 name: Build Dispatcher
+run-name: "Build ${{ github.event.client_payload.platform }} - v${{ github.event.client_payload.version_str }}"
 
 on:
   repository_dispatch:
@@ -101,12 +102,13 @@ jobs:
 
   # Job 4: Failure callback
   failure-callback:
-    needs: [parse, build-windows, build-macos]
+    needs: [parse, build-windows, build-macos, upload-and-callback]
     if: |
       always() &&
       (
         (needs.parse.outputs.platform == 'windows' && (needs.build-windows.result == 'failure' || needs.build-windows.result == 'cancelled')) ||
-        (needs.parse.outputs.platform == 'macos' && (needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled'))
+        (needs.parse.outputs.platform == 'macos' && (needs.build-macos.result == 'failure' || needs.build-macos.result == 'cancelled')) ||
+        needs.upload-and-callback.result == 'failure'
       )
     runs-on: ubuntu-latest
     steps:
@@ -119,5 +121,5 @@ jobs:
               \"platform\": \"${{ needs.parse.outputs.platform }}\",
               \"version_str\": \"${{ needs.parse.outputs.version_str }}\",
               \"version_code\": \"${{ needs.parse.outputs.version_code }}\",
-              \"error\": \"Build failed for ${{ needs.parse.outputs.platform }}\"
+              \"error\": \"${{ needs.upload-and-callback.result == 'failure' && 'Upload or callback failed' || format('Build failed for {0}', needs.parse.outputs.platform) }}\"
             }"
