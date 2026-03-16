@@ -77,18 +77,36 @@ jobs:
       - name: Upload to OSS
         run: |
           OSS_URL="${{ needs.parse.outputs.oss_url }}"
-          echo "Uploading artifacts to: $OSS_URL"
-          ossutil cp -r artifacts/ "$OSS_URL" --force
+          # Find the actual build artifact file
+          ARTIFACT_FILE=$(find artifacts/ -type f \( -name "*.exe" -o -name "*.dmg" \) | head -1)
+          if [ -z "$ARTIFACT_FILE" ]; then
+            echo "Error: No artifact file (.exe or .dmg) found"
+            exit 1
+          fi
+          FILENAME=$(basename "$ARTIFACT_FILE")
+          echo "Found artifact: $ARTIFACT_FILE"
+
+          # If OSS_URL ends with a filename (has extension), upload directly to that path
+          # If OSS_URL ends with /, treat it as a directory and append filename
+          if [[ "$OSS_URL" == */ ]]; then
+            DEST_URL="${OSS_URL}${FILENAME}"
+          else
+            DEST_URL="$OSS_URL"
+          fi
+          echo "Uploading $ARTIFACT_FILE to: $DEST_URL"
+          ossutil cp "$ARTIFACT_FILE" "$DEST_URL" --force
 
       - name: Send success callback
         run: |
-          # Find the actual uploaded filename
           ARTIFACT_FILE=$(find artifacts/ -type f \( -name "*.exe" -o -name "*.dmg" \) | head -1)
           FILENAME=$(basename "$ARTIFACT_FILE" 2>/dev/null || echo "unknown")
 
           OSS_URL="${{ needs.parse.outputs.oss_url }}"
-          # Ensure trailing slash
-          OSS_URL="${OSS_URL%/}/"
+          if [[ "$OSS_URL" == */ ]]; then
+            FINAL_URL="${OSS_URL}${FILENAME}"
+          else
+            FINAL_URL="$OSS_URL"
+          fi
 
           curl -sS -X POST "${{ needs.parse.outputs.success_callback }}" \
             -H "Content-Type: application/json" \
@@ -97,7 +115,7 @@ jobs:
               \"platform\": \"${{ needs.parse.outputs.platform }}\",
               \"version_str\": \"${{ needs.parse.outputs.version_str }}\",
               \"version_code\": \"${{ needs.parse.outputs.version_code }}\",
-              \"oss_url\": \"${OSS_URL}${FILENAME}\"
+              \"oss_url\": \"${FINAL_URL}\"
             }"
 
   # Job 4: Failure callback
