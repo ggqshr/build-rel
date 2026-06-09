@@ -87,18 +87,22 @@ jobs:
           brew install node
           npm install --global create-dmg
 
-      - name: Install Qt 6.7.3
+      - name: Install Qt 6.9.3
         uses: jurplel/install-qt-action@v4
         with:
           cache: true
-          version: 6.7.3
+          set-env: true
+          add-tools-to-path: true
+          version: 6.9.3
           modules: 'qtwebsockets qtmultimedia qt5compat qtshadertools'
 
       - name: Build DMG
         env:
           SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
           NOTARY_KEYCHAIN_PROFILE: "ESportsNotary"
-        run: bash scripts/generate-dmg.sh Release
+        run: |
+          sed -i.bak "s|/Users/meng/Qt/[^/]*/macos/bin/qmake|${QT_ROOT_DIR}/bin/qmake|g" scripts/generate-dmg.sh
+          bash scripts/generate-dmg.sh Release
 
       - name: Upload DMG
         uses: actions/upload-artifact@v5
